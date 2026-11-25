@@ -1,0 +1,143 @@
+
+name: Notarize Prebuilt DevShelf
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notarize:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract prebuilt app
+        run: |
+          mkdir -p output
+          ditto -x -k releases/DevShelf.zip output
+
+      - name: Verify Developer ID signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 \
+            output/DevShelf.app
+          codesign -dv --verbose=4 output/DevShelf.app
+
+      - name: Configure Apple API key
+        env:
+          API_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+          printf '%s\n' "$API_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Submit to Apple Notary Service
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          xcrun notarytool submit releases/DevShelf.zip \
+            --key "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8" \
+            --key-id "$KEY_ID" \
+            --issuer "$ISSUER_ID" \
+            --output-format json \
+            | tee notarization.json
+
+          SUBMISSION_ID=$(python3 -c \
+            'import json; print(json.load(open("notarization.json"))["id"])')
+
+          echo "Submission ID: $SUBMISSION_ID"
+          echo "SUBMISSION_ID=$SUBMISSION_ID" >> "$GITHUB_ENV"
+
+      - name: Wait for Apple notarization
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+
+          for i in $(seq 1 90); do
+            echo "Checking notarization status ($i/90)"
+
+            xcrun notarytool info "$SUBMISSION_ID" \
+              --key "$KEY_PATH" \
+              --key-id "$KEY_ID" \
+              --issuer "$ISSUER_ID" \
+              --output-format json \
+              > notarization-status.json
+
+            cat notarization-status.json
+
+            STATUS=$(python3 -c \
+              'import json; print(json.load(open("notarization-status.json"))["status"])')
+
+            if [ "$STATUS" = "Accepted" ]; then
+              echo "Notarization accepted!"
+              exit 0
+            fi
+
+            if [ "$STATUS" = "Invalid" ]; then
+              echo "Notarization rejected."
+              exit 1
+            fi
+
+            sleep 120
+          done
+
+          echo "Timed out waiting for Apple notarization."
+          exit 1
+
+      - name: Retrieve Apple notarization log
+        if: always() && env.SUBMISSION_ID != ''
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --key "$KEY_PATH" \
+            --key-id "$KEY_ID" \
+            --issuer "$ISSUER_ID" \
+            notarization-log.json || true
+
+          if [ -f notarization-log.json ]; then
+            cat notarization-log.json
+          fi
+
+      - name: Staple notarization ticket
+        run: |
+          xcrun stapler staple output/DevShelf.app
+          xcrun stapler validate output/DevShelf.app
+
+      - name: Package notarized application
+        run: |
+          ditto -c -k --keepParent \
+            output/DevShelf.app \
+            DevShelf-notarized.zip
+
+      - name: Upload notarized application
+        uses: actions/upload-artifact@v4
+        with:
+          name: DevShelf-notarized
+          path: DevShelf-notarized.zip
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notarization-diagnostics
+          path: |
+            notarization.json
+            notarization-status.json
+            notarization-log.json
+          if-no-files-found: ignore
