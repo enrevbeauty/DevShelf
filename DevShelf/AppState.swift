@@ -65,6 +65,8 @@ enum QuickSearchShortcut: String, CaseIterable, Identifiable {
 final class AppState: ObservableObject {
 
     static let shared = AppState()
+    
+    @Published var requestedUtility: DeveloperUtility?
 
     @Published var menuBarOnly: Bool {
         didSet {
@@ -136,6 +138,19 @@ final class AppState: ObservableObject {
         updateActivationPolicy()
 
         registerHotKey()
+    }
+    
+    func openUtility(
+        _ utility: DeveloperUtility
+    ) {
+
+        QuickSearchController.shared.hide(
+            restorePreviousApplication: false
+        )
+
+        requestedUtility = utility
+
+        showMainWindow()
     }
 
     // MARK: - Window Management

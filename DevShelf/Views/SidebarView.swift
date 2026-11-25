@@ -55,6 +55,8 @@ struct SidebarView: View {
             collectionsSection
 
             tagsSection
+
+            utilitiesSection
         }
         .listStyle(.sidebar)
         .sheet(isPresented: $showingNewCollection) {
@@ -111,6 +113,27 @@ struct SidebarView: View {
             Text(
                 "All trashed snippets will be permanently deleted. This cannot be undone."
             )
+        }
+    }
+    
+    // MARK: - Utilities
+
+    private var utilitiesSection: some View {
+
+        Section("Utilities") {
+
+            ForEach(
+                DeveloperUtility.allCases
+            ) { utility in
+
+                sidebarRow(
+                    title: utility.title,
+                    icon: utility.icon
+                )
+                .tag(
+                    SidebarSelection.utility(utility)
+                )
+            }
         }
     }
 

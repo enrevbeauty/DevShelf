@@ -10,9 +10,12 @@ enum SidebarSelection: Hashable {
 
     case collection(UUID)
     case tag(String)
+    case utility(DeveloperUtility)
 
     var title: String {
+
         switch self {
+
         case .all:
             return "All Snippets"
 
@@ -33,6 +36,18 @@ enum SidebarSelection: Hashable {
 
         case .tag(let name):
             return name
+
+        case .utility(let utility):
+            return utility.title
         }
+    }
+
+    var isUtility: Bool {
+
+        if case .utility = self {
+            return true
+        }
+
+        return false
     }
 }

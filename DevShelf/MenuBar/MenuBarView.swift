@@ -99,6 +99,28 @@ struct MenuBarView: View {
             "Menu Bar Only",
             isOn: $appState.menuBarOnly
         )
+        
+        Menu("Developer Utilities") {
+
+            ForEach(
+                DeveloperUtility.allCases
+            ) { utility in
+
+                Button {
+
+                    appState.openUtility(utility)
+
+                } label: {
+
+                    Label(
+                        utility.title,
+                        systemImage: utility.icon
+                    )
+                }
+            }
+        }
+
+        Divider()
 
         Button("Settings...") {
 

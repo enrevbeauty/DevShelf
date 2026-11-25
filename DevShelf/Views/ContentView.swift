@@ -22,6 +22,16 @@ struct ContentView: View {
 
     @State private var columnVisibility:
         NavigationSplitViewVisibility = .all
+    
+    private var selectedUtility: DeveloperUtility? {
+
+        if case .utility(let utility) = selectedSection {
+
+            return utility
+        }
+
+        return nil
+    }
 
     private var sectionTitle: String {
 
@@ -90,7 +100,11 @@ struct ContentView: View {
                 !$0.isDeleted &&
                 $0.tags.contains(tag)
             }
+            
+        case .utility:
+            return []
         }
+    
     }
 
     private var visibleSnippetIDs: [UUID] {
@@ -98,6 +112,98 @@ struct ContentView: View {
     }
 
     var body: some View {
+
+        Group {
+
+            if let utility = selectedUtility {
+
+                utilityLayout(utility)
+
+            } else {
+
+                libraryLayout
+            }
+        }
+        .onChange(of: selectedSection) {
+
+            validateSelection()
+        }
+        .onChange(of: visibleSnippetIDs) {
+
+            validateSelection()
+        }
+        .onReceive(
+            appState.$requestedSnippetID
+        ) { id in
+
+            guard let id else {
+                return
+            }
+
+            openRequestedSnippet(id)
+        }
+        .onReceive(
+            appState.$requestedUtility
+        ) { utility in
+
+            guard let utility else {
+                return
+            }
+
+            selectedSection = .utility(utility)
+
+            selectedSnippet = nil
+
+            Task { @MainActor in
+
+                await Task.yield()
+
+                if appState.requestedUtility == utility {
+
+                    appState.requestedUtility = nil
+                }
+            }
+        }
+        .background {
+
+            MainWindowAccessor { window in
+
+                window.isReleasedWhenClosed = false
+
+                window.delegate =
+                    MainWindowDelegate.shared
+
+                appState.mainWindow = window
+            }
+        }
+    }
+    
+    private func utilityLayout(
+        _ utility: DeveloperUtility
+    ) -> some View {
+
+        NavigationSplitView {
+
+            SidebarView(
+                selection: $selectedSection
+            )
+            .navigationSplitViewColumnWidth(
+                min: 160,
+                ideal: 200,
+                max: 280
+            )
+
+        } detail: {
+
+            UtilityContainerView(
+                utility: utility
+            )
+            .id(utility.id)
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+    
+    private var libraryLayout: some View {
 
         NavigationSplitView(
             columnVisibility: $columnVisibility
@@ -132,33 +238,6 @@ struct ContentView: View {
             detailContent
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: selectedSection) {
-            validateSelection()
-        }
-        .onChange(of: visibleSnippetIDs) {
-            validateSelection()
-        }
-        .onReceive(
-            appState.$requestedSnippetID
-        ) { id in
-
-            guard let id else {
-                return
-            }
-
-            openRequestedSnippet(id)
-        }
-        .background {
-
-            MainWindowAccessor { window in
-
-                window.isReleasedWhenClosed = false
-
-                window.delegate = MainWindowDelegate.shared
-
-                appState.mainWindow = window
-            }
-        }
     }
     
     // MARK: - External Snippet Selection
@@ -262,7 +341,9 @@ struct ContentView: View {
 
     private func createSnippet() {
 
-        guard selectedSection != .trash else {
+        guard selectedSection != .trash,
+              selectedSection?.isUtility != true
+        else {
             return
         }
 
